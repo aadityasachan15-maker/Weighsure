@@ -1,0 +1,6 @@
+{
+  "name": "WeighSure - OIML R-76 NAWI Test Report System",
+  "description": "Standardized digital test report generator, deterministic OIML R-76 mathematical compliance engine, dynamic QR verification, and AI explainability assistant for Non-Automatic Weighing Instruments (DoCA / Legal Metrology).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
