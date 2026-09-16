@@ -126,34 +126,6 @@ export const TestForms: React.FC<TestFormsProps> = ({
     onUpdateEccentricityTest(result.points, result.maxDiff, result.allPassed);
   };
 
-  const handleSetCornerPass = () => {
-    const load = Number((instrument.maxCapacity / 3).toFixed(3));
-    const mpe = calculateMPE(load, instrument.accuracyClass, instrument.scaleIntervalE, isInService);
-    const rawPoints = eccentricityTest.map((p) => ({
-      position: p.position,
-      indicated: Number((load + mpe * 0.4).toFixed(4)),
-    }));
-    const result = evaluateEccentricityPoints(rawPoints, load, instrument, isInService);
-    onUpdateEccentricityTest(result.points, result.maxDiff, result.allPassed);
-  };
-
-  const handleSetCornerFail = () => {
-    const load = Number((instrument.maxCapacity / 3).toFixed(3));
-    const mpe = calculateMPE(load, instrument.accuracyClass, instrument.scaleIntervalE, isInService);
-    // Specifically make Back-Right corner fail (+8g or 2.5x MPE)
-    const rawPoints = eccentricityTest.map((p) => {
-      let ind = load;
-      if (p.position === 'Back-Right (4)') {
-        ind = Number((load + mpe * 2.2).toFixed(4));
-      } else {
-        ind = Number((load + mpe * 0.3).toFixed(4));
-      }
-      return { position: p.position, indicated: ind };
-    });
-    const result = evaluateEccentricityPoints(rawPoints, load, instrument, isInService);
-    onUpdateEccentricityTest(result.points, result.maxDiff, result.allPassed);
-  };
-
   // ----------------------------------------------------
   // 3. REPEATABILITY TEST HANDLERS
   // ----------------------------------------------------
@@ -234,61 +206,127 @@ export const TestForms: React.FC<TestFormsProps> = ({
           </div>
 
           {/* Sub Test Navigation Pills */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
-            <button
-              id="subtest-weighing-btn"
-              onClick={() => setActiveSubTest('weighing')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all ${
-                activeSubTest === 'weighing'
-                  ? 'bg-white text-indigo-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Scale className="w-3.5 h-3.5" />
-              <span>1. Weighing Performance</span>
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  weighingPassed ? 'bg-emerald-500' : 'bg-rose-500'
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
+              <button
+                id="subtest-weighing-btn"
+                onClick={() => setActiveSubTest('weighing')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all ${
+                  activeSubTest === 'weighing'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
-              />
-            </button>
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>1. Weighing</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                    weighingPassed ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                  }`}
+                >
+                  {weighingPassed ? 'PASS' : 'FAIL'}
+                </span>
+              </button>
 
-            <button
-              id="subtest-eccentricity-btn"
-              onClick={() => setActiveSubTest('eccentricity')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all ${
-                activeSubTest === 'eccentricity'
-                  ? 'bg-white text-indigo-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Crosshair className="w-3.5 h-3.5" />
-              <span>2. Eccentricity (Corner Load)</span>
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  eccentricityPassed ? 'bg-emerald-500' : 'bg-rose-500'
+              <button
+                id="subtest-eccentricity-btn"
+                onClick={() => setActiveSubTest('eccentricity')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all ${
+                  activeSubTest === 'eccentricity'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
-              />
-            </button>
+              >
+                <Crosshair className="w-3.5 h-3.5" />
+                <span>2. Eccentricity</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                    eccentricityPassed ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                  }`}
+                >
+                  {eccentricityPassed ? 'PASS' : 'FAIL'}
+                </span>
+              </button>
 
-            <button
-              id="subtest-repeatability-btn"
-              onClick={() => setActiveSubTest('repeatability')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all ${
-                activeSubTest === 'repeatability'
-                  ? 'bg-white text-indigo-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>3. Repeatability</span>
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  repeatabilityPassed ? 'bg-emerald-500' : 'bg-rose-500'
+              <button
+                id="subtest-repeatability-btn"
+                onClick={() => setActiveSubTest('repeatability')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all ${
+                  activeSubTest === 'repeatability'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
-              />
-            </button>
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>3. Repeatability</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                    repeatabilityPassed ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                  }`}
+                >
+                  {repeatabilityPassed ? 'PASS' : 'FAIL'}
+                </span>
+              </button>
+            </div>
           </div>
+        </div>
+      </div>
+
+      {/* Real-time OIML Compliance Status Bar */}
+      <div
+        className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+          allTestsPassed
+            ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+            : 'bg-rose-50/90 border-rose-300 text-rose-950'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          {allTestsPassed ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+          )}
+          <div>
+            <div className="font-bold flex items-center gap-2">
+              <span>
+                {allTestsPassed
+                  ? 'All OIML R-76 Metrological Tests Passed'
+                  : 'Metrological Non-Conformity Detected (FAIL)'}
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full font-extrabold text-[11px] ${
+                  allTestsPassed
+                    ? 'bg-emerald-200 text-emerald-900'
+                    : 'bg-rose-200 text-rose-900'
+                }`}
+              >
+                {allTestsPassed ? 'VERDICT: PASS' : 'VERDICT: FAIL'}
+              </span>
+            </div>
+            <div className="text-[11px] mt-0.5 opacity-85 flex flex-wrap items-center gap-2">
+              <span className={weighingPassed ? 'text-emerald-800 font-semibold' : 'text-rose-700 font-bold'}>
+                1. Weighing: {weighingPassed ? 'PASS' : 'FAIL (exceeds MPE)'}
+              </span>
+              <span>•</span>
+              <span className={eccentricityPassed ? 'text-emerald-800 font-semibold' : 'text-rose-700 font-bold'}>
+                2. Eccentricity: {eccentricityPassed ? 'PASS' : 'FAIL (corner load defect)'}
+              </span>
+              <span>•</span>
+              <span className={repeatabilityPassed ? 'text-emerald-800 font-semibold' : 'text-rose-700 font-bold'}>
+                3. Repeatability: {repeatabilityPassed ? 'PASS' : 'FAIL (range > MPE)'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onProceedToReport}
+            className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg font-semibold transition-colors cursor-pointer shadow-xs"
+          >
+            View Report &amp; QR
+          </button>
         </div>
       </div>
 
@@ -461,14 +499,16 @@ export const TestForms: React.FC<TestFormsProps> = ({
                         )}
                       </td>
                       <td className="py-2 px-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteWeighingRow(index)}
-                          title="Delete Point"
-                          className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteWeighingRow(index)}
+                            title="Delete Point"
+                            className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -514,25 +554,6 @@ export const TestForms: React.FC<TestFormsProps> = ({
               <p className="text-xs text-slate-500 mt-0.5">
                 Load placed in center and 4 corners to detect asymmetric lever/load-cell sensitivity. Recommended test load is ≈ 1/3 Max.
               </p>
-            </div>
-
-            {/* Quick Demo Test Buttons */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleSetCornerPass}
-                className="text-xs px-3 py-1.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 rounded-lg font-medium transition-colors cursor-pointer"
-              >
-                Set All Corners PASS
-              </button>
-              <button
-                type="button"
-                onClick={handleSetCornerFail}
-                title="Simulate +8g error at Back-Right corner"
-                className="text-xs px-3 py-1.5 bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200 rounded-lg font-medium transition-colors cursor-pointer"
-              >
-                Simulate Corner 4 Failure
-              </button>
             </div>
           </div>
 

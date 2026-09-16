@@ -34,6 +34,7 @@ import {
   SAMPLE_REPORTS,
   calculateMPE,
   evaluateEccentricityPoints,
+  evaluateOverallReportStatus,
   evaluateRepeatabilityTest,
   evaluateWeighingPoint,
   generateRecommendedLoads,
@@ -68,23 +69,50 @@ export default function App() {
   const updateReportData = (partial: Partial<OIMLTestReport>) => {
     setCurrentReport((prev) => {
       const updated = { ...prev, ...partial };
+      const status = evaluateOverallReportStatus(updated);
+      const overall = status.overallVerdict;
 
-      // Recalculate pass flags
-      const weighingPassed =
-        updated.weighingTest.length > 0 && updated.weighingTest.every((p) => p.passOverall);
-      const eccentricityPassed =
-        updated.eccentricityTest.length > 0 && updated.eccentricityTest.every((p) => p.pass);
-      const repeatabilityPassed = updated.repeatabilityTest.pass;
+      const cleanId = updated.id.replace(/[^a-zA-Z0-9]/g, '');
+      let verificationHash = updated.verificationHash;
+      let notes = updated.notes;
 
-      const overall = weighingPassed && eccentricityPassed && repeatabilityPassed ? 'PASS' : 'FAIL';
+      if (overall === 'PASS') {
+        if (!verificationHash || verificationHash.includes('FAIL')) {
+          verificationHash = `SHA256-OIML76-CERTIFIED-${cleanId}`;
+        }
+        if (!notes || notes.startsWith('REJECTED')) {
+          notes = `Verified compliant with OIML R-76 (${updated.verificationType === 'in_service' ? 'In-Service, Rule 14' : 'Initial Verification'}) requirements. All test tolerances satisfied.`;
+        }
+      } else {
+        if (!verificationHash || verificationHash.includes('CERTIFIED')) {
+          verificationHash = `SHA256-FAIL-NONCONFORMING-${cleanId}`;
+        }
+        notes = `REJECTED: Instrument fails Maximum Permissible Error (MPE) tolerances under OIML R-76 in: ${status.failingModules.join(', ')}.`;
+      }
 
-      return {
+      const finalReport: OIMLTestReport = {
         ...updated,
-        weighingTestPassed: weighingPassed,
-        eccentricityTestPassed: eccentricityPassed,
-        repeatabilityTestPassed: repeatabilityPassed,
+        weighingTestPassed: status.weighingPassed,
+        eccentricityTestPassed: status.eccentricityPassed,
+        repeatabilityTestPassed: status.repeatabilityPassed,
         overallVerdict: overall,
+        verificationHash,
+        notes,
       };
+
+      // Real-time synchronization with National Repository list
+      setReportsList((list) =>
+        list.map((r) => (r.id === finalReport.id ? finalReport : r))
+      );
+
+      // Background persistence so /api/verify/:id and /api/reports reflect updates
+      fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(finalReport),
+      }).catch(() => {});
+
+      return finalReport;
     });
   };
 
@@ -93,7 +121,11 @@ export default function App() {
   // ----------------------------------------------------------------
   const handleLoadPreset = (index: number) => {
     if (SAMPLE_REPORTS[index]) {
-      setCurrentReport(JSON.parse(JSON.stringify(SAMPLE_REPORTS[index])));
+      const preset = JSON.parse(JSON.stringify(SAMPLE_REPORTS[index]));
+      setCurrentReport(preset);
+      setReportsList((list) =>
+        list.map((r) => (r.id === preset.id ? preset : r))
+      );
       setWizardStep(1);
       setActiveTab('wizard');
     }
@@ -172,12 +204,13 @@ export default function App() {
     };
 
     setCurrentReport(blankReport);
+    setReportsList((prev) => [blankReport, ...prev]);
     setWizardStep(1);
     setActiveTab('wizard');
   };
 
   // ----------------------------------------------------------------
-  // REPOSITORY SAVE
+  // REPOSITORY OPERATIONS
   // ----------------------------------------------------------------
   const handleSaveToRepository = async () => {
     try {
@@ -187,13 +220,50 @@ export default function App() {
         body: JSON.stringify(currentReport),
       });
       if (res.ok) {
-        const saved = await res.json();
-        setReportsList((prev) => [saved, ...prev.filter((r) => r.id !== saved.id)]);
+        const data = await res.json();
+        const savedReport: OIMLTestReport = (data && data.report) ? data.report : data;
+        setReportsList((prev) => {
+          const exists = prev.some((r) => r.id === savedReport.id);
+          if (exists) {
+            return prev.map((r) => (r.id === savedReport.id ? savedReport : r));
+          }
+          return [savedReport, ...prev];
+        });
       }
     } catch {
       // Offline fallback
-      setReportsList((prev) => [currentReport, ...prev.filter((r) => r.id !== currentReport.id)]);
+      setReportsList((prev) => {
+        const exists = prev.some((r) => r.id === currentReport.id);
+        if (exists) {
+          return prev.map((r) => (r.id === currentReport.id ? currentReport : r));
+        }
+        return [currentReport, ...prev];
+      });
     }
+  };
+
+  const handleEditReport = (rep: OIMLTestReport) => {
+    setCurrentReport(rep);
+    setWizardStep(2);
+    setActiveTab('wizard');
+  };
+
+  const handleResetRepository = async () => {
+    try {
+      const res = await fetch('/api/reports/reset', { method: 'POST' });
+      if (res.ok) {
+        const resetList: OIMLTestReport[] = await res.json();
+        setReportsList(resetList);
+        const match = resetList.find((r) => r.id === currentReport.id);
+        if (match) setCurrentReport(match);
+        return;
+      }
+    } catch {
+      // fallback
+    }
+    const defaults = JSON.parse(JSON.stringify(SAMPLE_REPORTS));
+    setReportsList(defaults);
+    setCurrentReport(defaults[0]);
   };
 
   return (
@@ -361,6 +431,10 @@ export default function App() {
             onOpenVerificationModal={(id) => setVerificationModalId(id)}
             onOpenAiAssistant={() => setActiveTab('ai')}
             onSaveToRepository={handleSaveToRepository}
+            onEditInWizard={() => {
+              setWizardStep(2);
+              setActiveTab('wizard');
+            }}
           />
         )}
 
@@ -375,6 +449,8 @@ export default function App() {
               setCurrentReport(rep);
               setActiveTab('report');
             }}
+            onEditReport={handleEditReport}
+            onResetRepository={handleResetRepository}
             onOpenVerificationModal={(id) => setVerificationModalId(id)}
           />
         )}

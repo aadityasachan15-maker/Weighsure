@@ -3,7 +3,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
-import { SAMPLE_REPORTS } from './src/utils/oimlEngine.ts';
+import { SAMPLE_REPORTS, evaluateOverallReportStatus } from './src/utils/oimlEngine.ts';
 import { OIMLTestReport } from './src/types/oiml.ts';
 
 dotenv.config();
@@ -80,8 +80,37 @@ app.post('/api/reports', (req, res) => {
   if (!report || !report.id) {
     return res.status(400).json({ error: 'Invalid report data. Report ID required.' });
   }
-  reportsStore.set(report.id, report);
-  res.json({ success: true, id: report.id, report });
+  const status = evaluateOverallReportStatus(report);
+  const cleanId = report.id.replace(/[^a-zA-Z0-9]/g, '');
+  const updatedReport: OIMLTestReport = {
+    ...report,
+    weighingTestPassed: status.weighingPassed,
+    eccentricityTestPassed: status.eccentricityPassed,
+    repeatabilityTestPassed: status.repeatabilityPassed,
+    overallVerdict: status.overallVerdict,
+    verificationHash:
+      status.overallVerdict === 'PASS'
+        ? (!report.verificationHash || report.verificationHash.includes('FAIL')
+            ? `SHA256-OIML76-CERTIFIED-${cleanId}`
+            : report.verificationHash)
+        : (!report.verificationHash || report.verificationHash.includes('CERTIFIED')
+            ? `SHA256-FAIL-NONCONFORMING-${cleanId}`
+            : report.verificationHash),
+  };
+  reportsStore.set(updatedReport.id, updatedReport);
+  res.json(updatedReport);
+});
+
+// Reset reports to official benchmark presets
+app.post('/api/reports/reset', (req, res) => {
+  reportsStore.clear();
+  SAMPLE_REPORTS.forEach((report) => {
+    reportsStore.set(report.id, JSON.parse(JSON.stringify(report)));
+  });
+  const all = Array.from(reportsStore.values()).sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  res.json(all);
 });
 
 // Public Verification endpoint for QR scan

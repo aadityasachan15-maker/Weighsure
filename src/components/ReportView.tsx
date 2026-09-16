@@ -16,6 +16,7 @@ import {
   Sparkles,
   Calendar,
   AlertTriangle,
+  Sliders,
 } from 'lucide-react';
 import { OIMLTestReport } from '../types/oiml';
 
@@ -24,6 +25,7 @@ interface ReportViewProps {
   onOpenVerificationModal: (reportId: string) => void;
   onOpenAiAssistant: () => void;
   onSaveToRepository: () => void;
+  onEditInWizard?: () => void;
 }
 
 export const ReportView: React.FC<ReportViewProps> = ({
@@ -31,6 +33,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
   onOpenVerificationModal,
   onOpenAiAssistant,
   onSaveToRepository,
+  onEditInWizard,
 }) => {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
@@ -113,6 +116,18 @@ export const ReportView: React.FC<ReportViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onEditInWizard && (
+            <button
+              type="button"
+              id="edit-wizard-report-btn"
+              onClick={onEditInWizard}
+              className="px-3.5 py-2 bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Sliders className="w-4 h-4 text-slate-600" />
+              <span>Adjust / Edit Tests</span>
+            </button>
+          )}
+
           <button
             type="button"
             id="print-report-btn"

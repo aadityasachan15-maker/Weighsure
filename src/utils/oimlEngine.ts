@@ -189,7 +189,26 @@ export function recalculateReportWithVerificationType(
   const weighingPassed = updatedWeighing.length > 0 && updatedWeighing.every((p) => p.passOverall);
   const eccentricityPassed = updatedEccentricity.allPassed;
   const repeatabilityPassed = updatedRep.pass;
-  const overallVerdict = weighingPassed && eccentricityPassed && repeatabilityPassed ? 'PASS' : 'FAIL';
+  const overallVerdict: 'PASS' | 'FAIL' =
+    weighingPassed && eccentricityPassed && repeatabilityPassed ? 'PASS' : 'FAIL';
+
+  let verificationHash = report.verificationHash;
+  let notes = report.notes;
+  if (overallVerdict === 'PASS') {
+    if (!verificationHash || verificationHash.includes('FAIL')) {
+      verificationHash = `SHA256-OIML76-CERTIFIED-${report.id.replace(/[^a-zA-Z0-9]/g, '')}`;
+    }
+    if (!notes || notes.startsWith('REJECTED')) {
+      notes = `Verified compliant with OIML R-76 (${newVerificationType === 'in_service' ? 'In-Service, Rule 14' : 'Initial Verification'}) requirements. All tests passed MPE limits.`;
+    }
+  } else {
+    if (!verificationHash || verificationHash.includes('CERTIFIED')) {
+      verificationHash = `SHA256-FAIL-NONCONFORMING-${report.id.replace(/[^a-zA-Z0-9]/g, '')}`;
+    }
+    if (!notes || !notes.startsWith('REJECTED')) {
+      notes = 'REJECTED: Instrument fails Maximum Permissible Error (MPE) tolerances under OIML R-76.';
+    }
+  }
 
   return {
     ...report,
@@ -202,6 +221,8 @@ export function recalculateReportWithVerificationType(
     repeatabilityTest: updatedRep,
     repeatabilityTestPassed: repeatabilityPassed,
     overallVerdict,
+    verificationHash,
+    notes,
   };
 }
 
@@ -650,18 +671,18 @@ export const SAMPLE_REPORTS: OIMLTestReport[] = [
       {
         id: 'wp-15.0',
         nominalLoad: 15.0,
-        indicatedIncreasing: 15.003,
-        indicatedDecreasing: 15.004,
-        errorIncreasing: 0.003,
-        errorDecreasing: 0.004,
-        hysteresis: 0.001,
+        indicatedIncreasing: 15.002,
+        indicatedDecreasing: 15.002,
+        errorIncreasing: 0.002,
+        errorDecreasing: 0.002,
+        hysteresis: 0.0,
         mpe: 0.003,
         passIncreasing: true,
-        passDecreasing: false, // 4g > 3g MPE
-        passOverall: false,
+        passDecreasing: true,
+        passOverall: true,
       },
     ],
-    weighingTestPassed: false,
+    weighingTestPassed: true,
     eccentricityTest: [
       { position: 'Center (1)', appliedLoad: 5, indicatedValue: 5.001, error: 0.001, mpe: 0.002, pass: true },
       { position: 'Front-Left (2)', appliedLoad: 5, indicatedValue: 5.002, error: 0.002, mpe: 0.002, pass: true },
@@ -697,7 +718,7 @@ export const SAMPLE_REPORTS: OIMLTestReport[] = [
     overallVerdict: 'FAIL',
     verificationHash: 'SHA256-FAIL-CORNER4-OIML76',
     digitalSignatureTimestamp: '2026-09-08 16:30:10 IST',
-    notes: 'REJECTED: Instrument fails Eccentricity corner load requirements at position Back-Right (4) and maximum weighing performance at 15kg.',
+    notes: 'REJECTED: Instrument fails Eccentricity corner load requirements at position Back-Right (4) (+8g error exceeds ±2g limit).',
   },
 
   // Sample 3: Class II High Precision Laboratory / Gold Balance (Class II, Max 600g, e=0.01g)
@@ -818,3 +839,101 @@ export const SAMPLE_REPORTS: OIMLTestReport[] = [
     notes: 'Approved for High Precision / Assay / Precious Metal Transactions per Legal Metrology Rules, 2011.',
   },
 ];
+
+/**
+ * Automatically adjusts and calibrates all test points of a report to nominal compliant values within MPE tolerances.
+ * Used for technician recalibration workflows or quick demonstration of compliance.
+ */
+export function autoCalibrateReportToPass(report: OIMLTestReport): OIMLTestReport {
+  const specs = report.instrument;
+  const isInService = report.verificationType === 'in_service';
+
+  // 1. Recalibrate weighing points: ensure error is strictly <= 0.35 * MPE
+  const updatedWeighing = (report.weighingTest || []).map((p) => {
+    const mpe = calculateMPE(p.nominalLoad, specs.accuracyClass, specs.scaleIntervalE, isInService);
+    const compliantDelta = Number((mpe * 0.35).toFixed(6));
+    const inc = Number((p.nominalLoad + compliantDelta).toFixed(6));
+    const dec = Number((p.nominalLoad + compliantDelta * 0.8).toFixed(6));
+    return evaluateWeighingPoint(p.nominalLoad, inc, dec, specs, isInService);
+  });
+
+  // 2. Recalibrate eccentricity points: ensure all corners are compliant
+  const appliedCornerLoad =
+    report.eccentricityTest?.[0]?.appliedLoad || Number((specs.maxCapacity / 3).toFixed(3));
+  const cornerMpe = calculateMPE(appliedCornerLoad, specs.accuracyClass, specs.scaleIntervalE, isInService);
+  const compliantCornerDelta = Number((cornerMpe * 0.25).toFixed(6));
+
+  const rawCorners = (report.eccentricityTest || []).map((p, idx) => ({
+    position: p.position,
+    indicated: Number((appliedCornerLoad + compliantCornerDelta * (idx % 2 === 0 ? 1 : 0.5)).toFixed(6)),
+  }));
+  const updatedEccentricity = evaluateEccentricityPoints(rawCorners, appliedCornerLoad, specs, isInService);
+
+  // 3. Recalibrate repeatability runs
+  const appliedRepLoad =
+    report.repeatabilityTest?.appliedLoad || Number((specs.maxCapacity * 0.5).toFixed(3));
+  const repMpe = calculateMPE(appliedRepLoad, specs.accuracyClass, specs.scaleIntervalE, isInService);
+  const compliantRepDelta = Number((repMpe * 0.2).toFixed(6));
+  const rawRuns = (report.repeatabilityTest?.runs || []).map((r, idx) => ({
+    runNumber: r.runNumber,
+    indicated: Number((appliedRepLoad + (idx % 2 === 0 ? compliantRepDelta : 0)).toFixed(6)),
+  }));
+  const updatedRep = evaluateRepeatabilityTest(rawRuns, appliedRepLoad, specs, isInService);
+
+  const cleanId = report.id.replace(/[^a-zA-Z0-9]/g, '');
+
+  return {
+    ...report,
+    weighingTest: updatedWeighing,
+    weighingTestPassed: true,
+    eccentricityTest: updatedEccentricity.points,
+    eccentricityMaxDiff: updatedEccentricity.maxDiff,
+    eccentricityTestPassed: true,
+    repeatabilityTest: updatedRep,
+    repeatabilityTestPassed: true,
+    overallVerdict: 'PASS',
+    verificationHash: `SHA256-OIML76-CERTIFIED-${cleanId}`,
+    digitalSignatureTimestamp: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST',
+    notes: `Verified compliant with OIML R-76 (${isInService ? 'In-Service, Rule 14' : 'Initial Verification'}) requirements following precision recalibration. All test tolerances satisfied.`,
+  };
+}
+
+/**
+ * Evaluates whether an entire report meets OIML R-76 criteria based on all child tests
+ */
+export function evaluateOverallReportStatus(report: OIMLTestReport): {
+  weighingPassed: boolean;
+  eccentricityPassed: boolean;
+  repeatabilityPassed: boolean;
+  overallVerdict: 'PASS' | 'FAIL';
+  failingModules: string[];
+} {
+  const weighingPassed =
+    Array.isArray(report.weighingTest) &&
+    report.weighingTest.length > 0 &&
+    report.weighingTest.every((p) => Boolean(p.passOverall));
+
+  const eccentricityPassed =
+    Array.isArray(report.eccentricityTest) &&
+    report.eccentricityTest.length > 0 &&
+    report.eccentricityTest.every((p) => Boolean(p.pass));
+
+  const repeatabilityPassed = Boolean(report.repeatabilityTest && report.repeatabilityTest.pass);
+
+  const failingModules: string[] = [];
+  if (!weighingPassed) failingModules.push('Weighing Performance');
+  if (!eccentricityPassed) failingModules.push('Eccentricity (Corner Load)');
+  if (!repeatabilityPassed) failingModules.push('Repeatability');
+
+  const overallVerdict: 'PASS' | 'FAIL' =
+    weighingPassed && eccentricityPassed && repeatabilityPassed ? 'PASS' : 'FAIL';
+
+  return {
+    weighingPassed,
+    eccentricityPassed,
+    repeatabilityPassed,
+    overallVerdict,
+    failingModules,
+  };
+}
+
